@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, flash
 import sqlite3, os, pickle, hashlib
 from werkzeug.utils import secure_filename
+from generate_account import generate_account
 
 app = Flask(__name__)
 app.secret_key = "your_flask_secret_key"  # Used only for flashing messages
@@ -33,10 +34,10 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 # 🔍 Check if username already exists
-def username_exists(username):
+def user_id_exists(user_id):
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
-    c.execute("SELECT username FROM users WHERE username = ?", (username,))
+    c.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
     result = c.fetchone()
     conn.close()
     return result is not None
@@ -44,34 +45,28 @@ def username_exists(username):
 @app.route('/', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        username = request.form['username']
+        user_id = request.form['username']  # still coming from 'username' input
         raw_password = request.form['password']
-        wallet_address = request.form['wallet']
-        private_key = request.form['private_key']
-        mnemonic = request.form['mnemonic']
         image = request.files['profileImage']
 
-        if username_exists(username):
-            flash("⚠️ User ID Already Existed. Please choose another.")
+        if user_id_exists(user_id):
+            flash("⚠️ User ID already exists. Please choose another.")
             return redirect('/')
 
-        # 🔐 Hash the password
         hashed_password = hash_password(raw_password)
-
-        # 📂 Image as binary (BLOB)
         image_blob = image.read() if image else None
 
-        # 🧪 Dummy pickled transaction
+        mnemonic_phrase, private_key, wallet_address = generate_account()
+
         dummy_tx = {"from": wallet_address, "to": "some_wallet", "amount": 100}
         pickled_tx = pickle.dumps(dummy_tx)
 
-        # 💾 Insert into DB
         conn = sqlite3.connect('users.db')
         c = conn.cursor()
         c.execute('''
-            INSERT INTO users (username, password, image, wallet_address, private_key, mnemonic, pickle_transaction, signature_count)
+            INSERT INTO users (user_id, password, image, wallet_address, private_key, mnemonic, pickle_transaction, signature_count)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (username, hashed_password, image_blob, wallet_address, private_key, mnemonic, pickled_tx, 0))
+        ''', (user_id, hashed_password, image_blob, wallet_address, private_key, mnemonic_phrase, pickled_tx, 0))
         conn.commit()
         conn.close()
 
