@@ -89,12 +89,35 @@ def init_db():
             salt TEXT,
             transaction_id TEXT,
             cid TEXT,
-            ipfs_link TEXT
+            ipfs_link TEXT,
             asset_id TEXT
         )
     ''')
     conn.commit()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS blacklisted_data( 
+            blacklisted_waddress TEXT PRIMARY KEY NOT NULL
+        )
+    ''')
+    conn.commit()
     conn.close()
+
+def add_to_blacklist(wallet_address):
+    """Insert a given wallet address into the blacklisted_data table."""
+    if not wallet_address:
+        print("⚠️ Invalid wallet address provided.")
+        return
+    try:
+        conn = sqlite3.connect('users.db')
+        c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO blacklisted_data (blacklisted_waddress) VALUES (?)", (wallet_address,))
+        conn.commit()
+        conn.close()
+        print(f"✅ Wallet address {wallet_address} has been added to the blacklist.")
+    except sqlite3.Error as e:
+        print(f"⚠️ Failed to insert into blacklist: {e}")
+
+
 
 # 🔐 Hash password using SHA-256
 def hash_password(password):

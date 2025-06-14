@@ -1,7 +1,10 @@
 from algosdk import account, transaction
-from algosdk.v2client import algod
 import os
 from dotenv import load_dotenv
+import algokit_utils
+from algokit_utils import AlgorandClient, AlgoAmount, MultisigMetadata, AssetOptInParams, AssetTransferParams , PaymentParams 
+from algosdk import mnemonic
+
 
 load_dotenv()
 
@@ -14,70 +17,99 @@ SENDER_PRIVATE_KEY_2 = os.environ['MULTIISG_PRIVATE_KEY_2']
 SENDER_ADDRESS_1 = account.address_from_private_key(SENDER_PRIVATE_KEY_1)
 SENDER_ADDRESS_2 = account.address_from_private_key(SENDER_PRIVATE_KEY_2)
 
+ASSET_ID = 741182425
+
+# Initialize algod client
+algorand_client = algokit_utils.AlgorandClient.testnet()
 
 
 random_account_private_key , random_account_wallet_address = account.generate_account()
-RECEIVER_ADDRESS = random_account_wallet_address
+random_account_mnemonic = mnemonic.from_private_key(random_account_private_key)
+random_account = algorand_client.account.from_mnemonic(mnemonic=random_account_mnemonic)
+
+print("Random receiver account :-" , random_account_wallet_address)
+
+
+master_account = algorand_client.account.from_mnemonic(mnemonic=os.environ['MASTER_MNEMONIC'])
+multisig_account_1 = algorand_client.account.from_mnemonic(mnemonic=os.environ['MULTISIG_MNEMONIC_1'])
 
 
 
-# Initialize algod client
-algod_client = algod.AlgodClient(ALGOD_TOKEN, ALGOD_ADDRESS)
-
-# Create a multisig account (version=1, threshold=2, two addresses)
-msig = transaction.Multisig(
-    version=1,
-    threshold=2,
-    addresses=[SENDER_ADDRESS_1, SENDER_ADDRESS_2]
+multisig_account = algorand_client.account.multisig(
+    metadata=MultisigMetadata(
+        version=1,
+        threshold=2,
+        addresses=[
+           master_account.address,
+            multisig_account_1.address
+        ],
+    ),
+    signing_accounts=[master_account, multisig_account_1],
 )
 
 
-# Fund the accounts
-def fund_accounts(address):
-    try:
-        params = algod_client.suggested_params()
-        amount = 1_000_000  # 1 Algo
-        payment_txn = transaction.PaymentTxn(
-            sender=os.environ['MASTER_ADDRESS'],
-            sp=params,
+def fund_account(address):
+
+    payment_txn = algorand_client.send.payment(
+        PaymentParams(
+            sender=master_account.address,
             receiver=address,
-            amt=amount,
+            amount=AlgoAmount(algo=2),
         )
-        signed_txn = payment_txn.sign(os.environ['MASTER_PRIVATE_KEY'])
-        transaction_id = algod_client.send_transaction(signed_txn)
-        transaction.wait_for_confirmation(algod_client=algod_client, txid=transaction_id)
-        print(f"Account {address} funded!")
-    except Exception as e:
-        print(f"Error funding account {address}: {e}")
+    )
+
+    print("Payment transaction successfull")
+
+fund_account(address=multisig_account.address)
+fund_account(address=multisig_account_1.address)
 
 
-fund_accounts(address=msig.address())
-
-# Get suggested params from the network
-params = algod_client.suggested_params()
-
-# Create an asset transfer transaction from the multisig account
-txn = transaction.AssetTransferTxn(
-    sender=msig.address(),
-    sp=params,
-    receiver=RECEIVER_ADDRESS,
-    amt=1,
-    index=741174820
+# 5. Opt-in multisig account to the asset (replace 1234 with your asset ID)
+algorand_client.send.asset_opt_in(
+    AssetOptInParams(
+        sender=multisig_account.address,
+        asset_id=ASSET_ID,
+        signer=multisig_account.signer,  # Collects required multisig signatures
+    )
 )
 
-# Create a multisig transaction object
-mtx = transaction.MultisigTransaction(txn, msig)
 
-# Sign the transaction with the first private key
-mtx.sign(SENDER_PRIVATE_KEY_1)
 
-# Sign the transaction with the second private key
-mtx.sign(SENDER_PRIVATE_KEY_2)
 
-# Serialize the signed transaction
-signed_txn = mtx
+# 6. Transfer asset to the multisig account
+algorand_client.send.asset_transfer(
+    AssetTransferParams(
+        sender=master_account.address,         # Must be an account already opted-in and holding the asset
+        receiver=multisig_account.address,
+        asset_id=ASSET_ID,
+        amount=1,
+    )
+)
 
-# Send the transaction
-txid = algod_client.send_raw_transaction(transaction.encoding.msgpack_encode(signed_txn))
-print("Transaction ID:", txid)
+
+print("Transfer from master account to multisign done !!!!")
+
+# From multisign to random user
+
+algorand_client.send.asset_opt_in(
+    AssetOptInParams(
+        sender=random_account_wallet_address,
+        asset_id=ASSET_ID,
+        signer=random_account,  # Collects required multisig signatures
+    )
+)
+
+
+algorand_client.send.asset_transfer(
+    AssetTransferParams(
+        sender=multisig_account.address,         # Must be an account already opted-in and holding the asset
+        receiver=random_account_wallet_address,
+        asset_id=ASSET_ID,
+        amount=1,
+    )
+)
+
+print("Done !!!")
+
+
 

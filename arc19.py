@@ -39,7 +39,7 @@ class ARC19:
         self.private_key = mnemonic.to_private_key(master_mnemonic)
         self.user_address = account.address_from_private_key(self.private_key)
 
-
+        
         # Pinata
         self.pinata_key = os.environ['IPFS_API_KEY']
         self.pinata_secret_key = os.environ['IPFS_SECRET_KEY']
